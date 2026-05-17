@@ -22,13 +22,31 @@ public class RabbitMqConfig {
     }
 
     @Bean
+    public DirectExchange deadLetterExchange() {
+        return new DirectExchange(MessagingConstants.ORDER_DLX, true, false);
+    }
+
+    @Bean
     public Queue orderCreatedQueue() {
-        return QueueBuilder.durable(MessagingConstants.ORDER_CREATED_QUEUE).build();
+        return QueueBuilder.durable(MessagingConstants.ORDER_CREATED_QUEUE)
+                .withArgument("x-dead-letter-exchange", MessagingConstants.ORDER_DLX)
+                .withArgument("x-dead-letter-routing-key", MessagingConstants.ORDER_CREATED_QUEUE)
+                .build();
+    }
+
+    @Bean
+    public Queue deadLetterQueue() {
+        return QueueBuilder.durable(MessagingConstants.ORDER_CREATED_DLQ).build();
     }
 
     @Bean
     public Binding orderCreatedBinding(Queue orderCreatedQueue, DirectExchange orderExchange) {
         return BindingBuilder.bind(orderCreatedQueue).to(orderExchange).with(MessagingConstants.ORDER_CREATED_KEY);
+    }
+
+    @Bean
+    public Binding deadLetterBinding(Queue deadLetterQueue, DirectExchange deadLetterExchange) {
+        return BindingBuilder.bind(deadLetterQueue).to(deadLetterExchange).with(MessagingConstants.ORDER_CREATED_QUEUE);
     }
 
     @Bean
