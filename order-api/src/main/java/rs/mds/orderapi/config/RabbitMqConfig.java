@@ -30,6 +30,8 @@ public class RabbitMqConfig {
         RabbitTemplate template = new RabbitTemplate(connectionFactory);
         template.setMessageConverter(messageConverter);
         template.setExchange(ORDER_EVENTS);
+
+        template.setObservationEnabled(true);
         return template;
     }
 }

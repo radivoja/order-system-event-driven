@@ -12,6 +12,12 @@ services:
       retries: 10
       start_period: 30s
 
+  zipkin:
+    image: openzipkin/zipkin
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+
   order-api:
     build:
       context: ./order-api
@@ -20,6 +26,7 @@ services:
       - "8080:8080"
     environment:
       SPRING_RABBITMQ_HOST: rabbitmq
+      ZIPKIN_HOST: zipkin
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -32,6 +39,7 @@ services:
       - "8081:8081"
     environment:
       SPRING_RABBITMQ_HOST: rabbitmq
+      ZIPKIN_HOST: zipkin
     depends_on:
       rabbitmq:
         condition: service_healthy

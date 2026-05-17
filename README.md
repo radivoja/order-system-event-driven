@@ -19,7 +19,15 @@ A small event-driven system consisting of two independent Spring Boot services c
                        ┌─────────────────────────────────┘
                        │       RabbitMQ
                        │  order.events (direct exchange)
-                       │  └── order.created.queue ──► consumer
+                       │  ├── order.created.queue ──► consumer
+                       │  │
+                       │  order.dlx (dead letter exchange)
+                       │  └── order.created.dlq
+                       └─────────────────────────────────┘
+
+                       ┌─────────────────────────────────┐
+                       │       Zipkin  :9411              │
+                       │  Distributed tracing UI          │
                        └─────────────────────────────────┘
 ```
 
@@ -29,6 +37,7 @@ A small event-driven system consisting of two independent Spring Boot services c
 - Spring Boot 3.5.14
 - Spring AMQP (RabbitMQ)
 - RabbitMQ 3.13 (Management Alpine image)
+- Micrometer Tracing + Zipkin (distributed tracing)
 - Maven
 - Docker Compose
 - Lombok
@@ -45,7 +54,11 @@ A small event-driven system consisting of two independent Spring Boot services c
 docker compose up --build
 ```
 
-Wait ~30 seconds for all services to start. RabbitMQ Management UI is available at [http://localhost:15672](http://localhost:15672) (guest/guest).
+Wait ~30 seconds for all services to start.
+
+Available UIs:
+- RabbitMQ Management: [http://localhost:15672](http://localhost:15672) (guest/guest)
+- Zipkin Tracing: [http://localhost:9411](http://localhost:9411)
 
 ### Test
 
@@ -75,10 +88,24 @@ curl -s -X POST http://localhost:8080/orders \
   -d '{"orderId":"","itemId":"item-1","quantity":0}'
 ```
 
+### Distributed Tracing
+
+After sending an order, open Zipkin at [http://localhost:9411](http://localhost:9411) → click **Run Query** → click **SHOW** on a trace to see the full request flow:
+
+```
+order-api: POST /orders → rabbitmq: send to order.events → inventory-service: receive from order.created.queue
+```
+
+Each trace shows the complete journey of an order across both services with timing for every step.
+
+### Dead Letter Queue
+
+Failed messages are automatically routed to `order.created.dlq`. To verify, check the RabbitMQ Management UI → Queues → `order.created.dlq`.
+
 ### Stop
 
 ```bash
-docker compose down
+docker compose down -v
 ```
 
 ## Project Structure
@@ -105,7 +132,7 @@ order-system-event-driven/
     ├── pom.xml
     └── src/main/java/rs/mds/inventory/
         ├── config/RabbitMqConfig.java
-        ├── constants/MessageConstants.java
+        ├── constants/MessagingConstants.java
         ├── consumer/OrderEventConsumer.java
         ├── controller/InventoryController.java
         ├── event/OrderCreatedEvent.java
@@ -129,6 +156,8 @@ We have a clear, fixed routing pattern: `order.created` events go to a single qu
 |---|---|
 | **Idempotent Consumer** | Each event carries a unique `eventId` (UUID). The `InventoryService` tracks processed IDs in a `ConcurrentHashMap`-backed `Set` to skip duplicates. |
 | **Thread-Safe Inventory** | `AtomicInteger` with CAS (Compare-And-Set) loop for lock-free concurrent reservations. |
+| **Dead Letter Queue** | Failed messages are routed to `order.created.dlq` via `order.dlx` exchange for inspection and replay. |
+| **Distributed Tracing** | Micrometer Tracing + Zipkin — each request gets a unique trace ID that propagates through RabbitMQ, visible in Zipkin UI at `:9411`. |
 | **Async Acknowledgement** | `202 Accepted` HTTP response — the API acknowledges receipt, not processing completion. |
 | **JSON Serialization** | `Jackson2JsonMessageConverter` for human-readable, debuggable messages. |
 | **Input Validation** | Jakarta Bean Validation (`@NotBlank`, `@Min`) on the REST layer with structured error responses. |
@@ -145,8 +174,7 @@ We have a clear, fixed routing pattern: `order.created` events go to a single qu
 
 ### Potential Extensions
 
-- **Dead Letter Queue (DLQ)** — route failed messages to a separate queue for inspection and replay.
-- **Consumer retry with backoff** — automatic retry on transient failures before rejecting.
+- **Consumer retry with backoff** — automatic retry on transient failures before rejecting to DLQ.
 - **Saga / compensating transactions** — if the system grows to multiple downstream services.
-- **Distributed tracing** — Micrometer + Zipkin/Jaeger for cross-service observability.
 - **Outbox pattern** — for stronger exactly-once guarantees when a database is involved.
+- **Global Exception Handler** — structured JSON error responses on the REST layer.
